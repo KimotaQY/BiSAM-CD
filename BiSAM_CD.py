@@ -11,7 +11,7 @@ import numpy as np
 import torch
 import matplotlib.pyplot as plt
 from PIL import Image
-from tools.extract_single_masks import extract_single_masks
+from utils.extract_masks import extract_masks
 from pycocotools import mask as mask_utils
 
 
@@ -33,7 +33,7 @@ def linear_color_interpolation(img1, img2, alpha):
     return interpolated_rgb
 
 
-def gen_frame(folder_paths, filename, output_dir="output_jpg", sort="asc", mid_frame=0):
+def gen_frame(folder_paths, output_dir="output_jpg", sort="asc", mid_frame=0):
     # 根据排序方式决定遍历顺序
     paths_to_process = folder_paths if sort == "asc" else list(reversed(folder_paths))
 
@@ -46,11 +46,12 @@ def gen_frame(folder_paths, filename, output_dir="output_jpg", sort="asc", mid_f
 
     for idx, folder_path in enumerate(paths_to_process):
         # 构造输入和输出路径
-        input_path = os.path.join(folder_path, filename)
+        input_path = folder_path
         output_filename = f"{idx + 1}.jpg" if idx == 0 else f"{idx + mid_frame + 1}.jpg"
         output_path = os.path.join(output_dir, output_filename)
 
         # 打开PNG图片并转换为RGB模式（JPG不支持PNG的RGBA透明度）
+        filename = os.path.basename(folder_path)
         try:
             with Image.open(input_path) as img:
                 if img.mode in ("RGBA", "LA"):
@@ -74,9 +75,8 @@ def gen_frame(folder_paths, filename, output_dir="output_jpg", sort="asc", mid_f
     # 生成中间帧
     alphas = generate_uniform_alphas(mid_frame)
     for idx, alpha in enumerate(alphas):
-        folder_path = paths_to_process[0]
         # 构造输入和输出路径
-        input_path = os.path.join(folder_path, filename)
+        input_path = paths_to_process[0]
         output_filename = f"{idx + 2}.jpg"
         output_path = os.path.join(output_dir, output_filename)
 
@@ -91,8 +91,8 @@ def gen_frame(folder_paths, filename, output_dir="output_jpg", sort="asc", mid_f
                 elif img.mode != "RGB":
                     img = img.convert("RGB")
 
-                first_frame = os.path.join(paths_to_process[0], filename)
-                final_frame = os.path.join(paths_to_process[-1], filename)
+                first_frame = paths_to_process[0]
+                final_frame = paths_to_process[-1]
                 img = linear_color_interpolation(
                     cv2.imread(first_frame, cv2.IMREAD_UNCHANGED),
                     cv2.imread(final_frame, cv2.IMREAD_UNCHANGED),
@@ -100,12 +100,12 @@ def gen_frame(folder_paths, filename, output_dir="output_jpg", sort="asc", mid_f
                 )
                 # 保存为JPG
                 cv2.imwrite(output_path, img)
-                # img.save(output_path, "JPEG", quality=90)
-                print(f"转换成功: {filename} -> {os.path.basename(output_path)}")
+                # img.save(output_path, "JPEG", quality=100)
+                print(f"中间帧生成: {alpha} -> {os.path.basename(output_path)}")
         except Exception as e:
-            print(f"转换失败 {filename}: {str(e)}")
+            print(f"中间帧生成失败 {alpha}: {str(e)}")
 
-    return os.path.dirname(output_path)
+    return output_dir
 
 
 def add_new_obj(
@@ -254,13 +254,9 @@ def merge_masks(masks_dict, compare_masks_dict=None, iou_threshold=0.5):
 
 
 def step_one(
-    img_name,
-    T1_dir,
-    T2_dir,
-    T1_label_dir,
-    T2_label_dir,
+    img_paths: list,
+    annos_list: list,
     predictor=None,
-    label_type="whu",
     mid_frame=0,
     diff_frame_num=1,
     iou_threshold=0.5,
@@ -270,11 +266,10 @@ def step_one(
     #
     diff_mask_list = []
 
-    for i, label_dir in enumerate([T1_label_dir, T2_label_dir]):
+    for i, annos in enumerate(annos_list):
         # 生成顺序jpg
         video_dir = gen_frame(
-            [T1_dir, T2_dir],
-            img_name,
+            img_paths,
             sort="asc" if i == 0 else "desc",
             mid_frame=mid_frame,
         )
@@ -292,18 +287,7 @@ def step_one(
         # track objects
         predictor.reset_state(inference_state)
 
-        if label_type != "whu":
-            label_path = os.path.join(label_dir, Path(img_name).stem + ".json")
-            with open(label_path, "r") as f:
-                json_result = json.load(f)
-                masks = json_result if label_type == "sam2" else json_result["objects"]
-        else:
-            # 获取label中建筑物mask、box、points，并逐个赋予id进行追踪
-            masks = extract_single_masks(os.path.join(label_dir, img_name))
-        print(f"建筑物mask数量: {len(masks)}")
-
-        # 获取prompts
-        # prompt_objs = prompts.get("T1" if i == 0 else "T2", [])
+        print(f"建筑物数量: {len(annos)}")
 
         # 每次单独追踪一个对象
         def single_building_predict():
@@ -311,27 +295,22 @@ def step_one(
             video_segments = (
                 {}
             )  # video_segments contains the per-frame segmentation results
-            for idx, item in enumerate(masks):
-                if label_type == "whu":
-                    mask, (x, y, w, h), points = item.values()
-                else:
-                    box = item.get("bbox")
-                    score = item.get("score")
-                    # if score < 0.7:
-                    #     continue
+            for idx, item in enumerate(annos):
+                mask = item.get("mask")
+                box = item.get("box")
+                points = item.get("points")
 
                 ann_list = []
                 for frame_idx in range(mid_frame + 1):
                     if prompt_type == "points":
                         # 使用points
-                        labels = [1]
+                        labels = [1]  # ***标记正负样本点***
                         ann_list.append(
                             {
                                 "ann_frame_idx": frame_idx,
                                 "ann_obj_id": idx + 1,
                                 "points": points,
                                 "labels": labels,
-                                # "box": np.array([x, y, x + w, y + h]),
                             }
                         )
                     elif prompt_type == "box":
@@ -340,11 +319,7 @@ def step_one(
                             {
                                 "ann_frame_idx": frame_idx,
                                 "ann_obj_id": idx + 1,
-                                "box": (
-                                    np.array([x, y, x + w, y + h])
-                                    if label_type == "whu"
-                                    else np.array(box)
-                                ),
+                                "box": box,
                             }
                         )
                     else:
@@ -395,37 +370,29 @@ def step_one(
 
                 # 将masks按seg_len进行分段
                 segment = []
-                for i in range(0, len(masks), seg_len):
-                    segment.append(masks[i : i + seg_len])
+                for i in range(0, len(annos), seg_len):
+                    segment.append(annos[i : i + seg_len])
                     # print(segment)
 
-                if len(masks) > 100:
-                    print("too many masks")
+                if len(annos) > 100:
+                    print("too many objects")
 
                 for seg_idx, seg_masks in enumerate(segment):
                     ann_list = []
                     for idx, item in enumerate(seg_masks):
-                        if label_type == "whu":
-                            mask, (x, y, w, h), points = item.values()
-                        else:
-                            box = item.get("bbox")
-                            score = item.get("score")
-                            if label_type == "sam2":
-                                rle = item.get("rle")
-                                area = item.get("area")
-                                if area < 150:
-                                    continue
+                        mask = item.get("mask")
+                        box = item.get("box")
+                        points = item.get("points")
 
                         if prompt_type == "points":
                             # 使用points
-                            labels = [1]
+                            labels = [1]  # ***标记正负样本点***
                             ann_list.append(
                                 {
                                     "ann_frame_idx": frame_idx,
                                     "ann_obj_id": idx + 1 + seg_idx * seg_len,
                                     "points": points,
                                     "labels": labels,
-                                    # "box": np.array([x, y, x + w, y + h]),
                                 }
                             )
                         elif prompt_type == "box":
@@ -434,11 +401,7 @@ def step_one(
                                 {
                                     "ann_frame_idx": frame_idx,
                                     "ann_obj_id": idx + 1 + seg_idx * seg_len,
-                                    "box": (
-                                        np.array([x, y, x + w, y + h])
-                                        if label_type == "whu"
-                                        else np.array(box)
-                                    ),
+                                    "box": box,
                                 }
                             )
                         else:
@@ -448,11 +411,7 @@ def step_one(
                                 {
                                     "ann_frame_idx": frame_idx,
                                     "ann_obj_id": idx + 1 + seg_idx * seg_len,
-                                    "mask": (
-                                        mask
-                                        if label_type == "whu"
-                                        else mask_utils.decode(rle) * 255
-                                    ),
+                                    "mask": mask,
                                 }
                             )
 
@@ -487,18 +446,20 @@ def step_one(
         video_segments = predict_buildings_by_seglen()
         # mask合并显示
         segments_len = len(video_segments)
-        # if segments_len == 0:
-        #     diff_mask = {}
-        # else:
-        #     # 首尾帧比较
-        #     diff_mask = merge_masks(
-        #         video_segments[0 if diff_frame_num == 1 else segments_len - 2],
-        #         compare_masks_dict=video_segments[segments_len - 1],
-        #         iou_threshold=iou_threshold,
-        #     )
+        if segments_len == 0:
+            diff_mask = {}
+        else:
+            # 首尾帧比较
+            diff_mask = merge_masks(
+                video_segments[0 if diff_frame_num == 1 else segments_len - 2],
+                compare_masks_dict=video_segments[segments_len - 1],
+                iou_threshold=iou_threshold,
+            )
 
-        # diff_mask_list.append(diff_mask)
-        diff_mask_list.append(video_segments)
+        diff_mask_list.append(diff_mask)
+
+        # 消融实验用
+        # diff_mask_list.append(video_segments)
 
         torch.cuda.empty_cache()  # 清理 PyTorch 的 CUDA 缓存
 
