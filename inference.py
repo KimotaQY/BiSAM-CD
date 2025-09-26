@@ -63,17 +63,17 @@ def main(
     }
     checkpoint = model_obj[model_type]["checkpoint"]
     config = model_obj[model_type]["config"]
-    # 加载SAM2 video predictor
+    # load SAM2 video predictor
     sam2_checkpoint = os.path.join("E:/CD_Checkpoints", checkpoint)
     model_cfg = os.path.join("E:/CD_projects/BiSAM-CD/sam2/configs/sam2.1", config)
 
-    if None in [img_dirs, label_paths]:
-        print("请输入前后时相图片路径和标签路径")
+    if None in [img_paths, label_paths]:
+        print("Please input img_paths and label_paths")
         return
 
     predictor = build_sam2_video_predictor(model_cfg, sam2_checkpoint, device=device)
 
-    # 获取标签
+    # get annotations
     annos_list = []
     for label_path in label_paths:
         annos_list.append(get_annos(label_path, label_origin))
@@ -94,30 +94,30 @@ def main(
     h, w = diff_mask.shape[-2:]
     mask = diff_mask.reshape(h, w, 1)
 
-    # 创建一个绘图窗口并绘制三个子图
-    plt.figure(figsize=(15, 5))  # 设置窗口大小
+    # create a figure that can hold three subplots
+    plt.figure(figsize=(15, 5))  # set the figure size
 
-    # 绘制 img_A
+    # drawing img_A
     img_A = cv2.imread(img_paths[0])
     plt.subplot(1, 3, 1)
     plt.imshow(img_A)
     plt.title("T1")
     plt.axis("off")
 
-    # 绘制 img_B
+    # drawing img_B
     img_B = cv2.imread(img_paths[1])
     plt.subplot(1, 3, 2)
     plt.imshow(img_B)
     plt.title("T2")
     plt.axis("off")
 
-    # 绘制 mask
+    # drawing mask
     plt.subplot(1, 3, 3)
     plt.imshow(mask, cmap="gray")
     plt.title("mask")
     plt.axis("off")
 
-    # 展示图像
+    # show the plot
     plt.tight_layout()
     plt.show()
 

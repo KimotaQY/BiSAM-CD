@@ -17,80 +17,105 @@ from pycocotools import mask as mask_utils
 
 def linear_color_interpolation(img1, img2, alpha):
     """
-    线性颜色插值
-    :param img1: T1图像（BGR格式）
-    :param img2: T2图像（BGR格式）
-    :param alpha: 插值权重（0为全T1，1为全T2）
-    :return: 中间帧图像
+    Linear color interpolation between two images
+
+    :param img1: T1 image (BGR format)
+    :param img2: T2 image (BGR format)
+    :param alpha: Interpolation weight (0 for full T1, 1 for full T2)
+    :return: Interpolated frame image
     """
-    # 提取RGB通道（忽略Alpha）
+    # Extract RGB channels (ignoring Alpha)
     img1_rgb = img1[:, :, :3]
     img2_rgb = img2[:, :, :3]
 
-    # 线性插值
+    # Linear interpolation
     interpolated_rgb = (1 - alpha) * img1_rgb + alpha * img2_rgb
     interpolated_rgb = interpolated_rgb.astype(np.uint8)
     return interpolated_rgb
 
 
 def gen_frame(folder_paths, output_dir="output_jpg", sort="asc", mid_frame=0):
-    # 根据排序方式决定遍历顺序
+    """
+    Convert PNG format image files to JPEG format and optionally generate intermediate interpolated frames
+
+    This function iterates through the input folder path list, converts PNG images to JPEG format,
+    and generates intermediate interpolated frames as needed. The main processing includes
+    image format conversion (RGBA/LA to RGB), file renaming, and color interpolation.
+
+    Parameters:
+        folder_paths (list): List of paths to PNG image files
+        output_dir (str): Directory path for output JPEG images, defaults to "output_jpg"
+        sort (str): File processing order, "asc" for ascending order, other values for descending, defaults to "asc"
+        mid_frame (int): Number of intermediate frames to generate, defaults to 0 (no intermediate frames)
+
+    Returns:
+        str: Output directory path
+    """
+    # Determine traversal order based on sorting method
     paths_to_process = folder_paths if sort == "asc" else list(reversed(folder_paths))
 
-    # 清空文件夹内容
+    # Clear folder contents
     if os.path.exists(output_dir):
         shutil.rmtree(output_dir)
 
-    # 确保输出文件夹存在（只需要检查一次）
+    # Ensure output folder exists (only need to check once)
     os.makedirs(output_dir, exist_ok=True)
 
+    # Process all input image files
     for idx, folder_path in enumerate(paths_to_process):
-        # 构造输入和输出路径
+        # Construct input and output paths
         input_path = folder_path
         output_filename = f"{idx + 1}.jpg" if idx == 0 else f"{idx + mid_frame + 1}.jpg"
         output_path = os.path.join(output_dir, output_filename)
 
-        # 打开PNG图片并转换为RGB模式（JPG不支持PNG的RGBA透明度）
+        # Open PNG image and convert to RGB mode (JPEG does not support PNG's RGBA transparency)
         filename = os.path.basename(folder_path)
         try:
             with Image.open(input_path) as img:
                 if img.mode in ("RGBA", "LA"):
-                    # 创建一个白色背景的RGB图像
+                    # Create an RGB image with white background
                     background = Image.new("RGB", img.size, (255, 255, 255))
-                    background.paste(img, mask=img.split()[-1])  # 使用alpha通道作为mask
+                    background.paste(
+                        img, mask=img.split()[-1]
+                    )  # Use alpha channel as mask
                     img = background
                 elif img.mode != "RGB":
                     img = img.convert("RGB")
 
-                # 保存为JPG
+                # Save as JPEG
                 img.save(output_path, "JPEG", quality=100)
-                print(f"转换成功: {filename} -> {os.path.basename(output_path)}")
+                print(
+                    f"Conversion successful: {filename} -> {os.path.basename(output_path)}"
+                )
         except Exception as e:
-            print(f"转换失败 {filename}: {str(e)}")
+            print(f"Conversion failed {filename}: {str(e)}")
 
     def generate_uniform_alphas(num_frames):
-        """生成均匀间隔的alpha值"""
+        """Generate uniformly spaced alpha values"""
         return [i / (num_frames + 1) for i in range(1, num_frames + 1)]
 
-    # 生成中间帧
+    # Generate intermediate frames
     alphas = generate_uniform_alphas(mid_frame)
     for idx, alpha in enumerate(alphas):
-        # 构造输入和输出路径
+        # Construct input and output paths
         input_path = paths_to_process[0]
         output_filename = f"{idx + 2}.jpg"
         output_path = os.path.join(output_dir, output_filename)
 
-        # 打开PNG图片并转换为RGB模式（JPG不支持PNG的RGBA透明度）
+        # Open PNG image and convert to RGB mode (JPEG does not support PNG's RGBA transparency)
         try:
             with Image.open(input_path) as img:
                 if img.mode in ("RGBA", "LA"):
-                    # 创建一个白色背景的RGB图像
+                    # Create an RGB image with white background
                     background = Image.new("RGB", img.size, (255, 255, 255))
-                    background.paste(img, mask=img.split()[-1])  # 使用alpha通道作为mask
+                    background.paste(
+                        img, mask=img.split()[-1]
+                    )  # Use alpha channel as mask
                     img = background
                 elif img.mode != "RGB":
                     img = img.convert("RGB")
 
+                # Perform linear color interpolation to generate intermediate frames
                 first_frame = paths_to_process[0]
                 final_frame = paths_to_process[-1]
                 img = linear_color_interpolation(
@@ -98,12 +123,14 @@ def gen_frame(folder_paths, output_dir="output_jpg", sort="asc", mid_frame=0):
                     cv2.imread(final_frame, cv2.IMREAD_UNCHANGED),
                     alpha=alpha,
                 )
-                # 保存为JPG
+                # Save as JPEG
                 cv2.imwrite(output_path, img)
                 # img.save(output_path, "JPEG", quality=100)
-                print(f"中间帧生成: {alpha} -> {os.path.basename(output_path)}")
+                print(
+                    f"Intermediate frame generated: {alpha} -> {os.path.basename(output_path)}"
+                )
         except Exception as e:
-            print(f"中间帧生成失败 {alpha}: {str(e)}")
+            print(f"Intermediate frame generation failed {alpha}: {str(e)}")
 
     return output_dir
 
@@ -118,6 +145,32 @@ def add_new_obj(
     predictor=None,
     inference_state=None,
 ):
+    """
+    Add a new object for segmentation to the model
+
+    This function supports specifying objects to be segmented via points, bounding boxes, or masks.
+    Depending on the input type provided, it calls the appropriate model method to add the new object
+    and generate segmentation results.
+
+    Args:
+        ann_frame_idx (int): The frame index to interact with
+        ann_obj_id (int): A unique ID assigned to each interacting object (can be any integer)
+        points (list, optional): List of point coordinates in format [[x1, y1], [x2, y2], ...]
+        labels (list, optional): List of point labels, where 1 indicates a positive click and 0 indicates a negative click
+        box (list, optional): Bounding box coordinates in format [x1, y1, x2, y2]
+        mask (numpy.ndarray, optional): Binary mask array used to specify the object region
+        predictor: Predictor object used to perform segmentation operations
+        inference_state: Inference state object containing the state information required for model inference
+
+    Returns:
+        tuple: A tuple containing three elements:
+            - _: Model prediction results (unnamed return value)
+            - out_obj_ids (list): List of output object IDs
+            - out_mask_logits (torch.Tensor): Logits tensor of the output masks
+
+    Raises:
+        Exception: Raises an exception if an error occurs during the process of adding a new object
+    """
     try:
         ann_frame_idx = ann_frame_idx  # the frame index we interact with
         ann_obj_id = ann_obj_id  # give a unique id to each object we interact with (it can be any integers)
@@ -138,13 +191,13 @@ def add_new_obj(
             )
 
         if mask is not None:
-            # 1. 将 OpenCV 掩码 (0,255) 转换为二进制 (0,1)
-            binary_mask = (mask > 128).astype(np.uint8)  # 阈值化
+            # 1. Convert OpenCV mask (0,255) to binary (0,1)
+            binary_mask = (mask > 128).astype(np.uint8)  # Thresholding
 
-            # 2. 转换为 PyTorch 张量，并转为布尔类型
+            # 2. Convert to PyTorch tensor and then to boolean type
             mask_tensor = torch.from_numpy(binary_mask).to(torch.bool)
 
-            # 检查形状是否为 (H, W)
+            # Check if the shape is (H, W)
             assert mask_tensor.dim() == 2, f"Mask must be 2D, got {mask_tensor.shape}"
 
             _, out_obj_ids, out_mask_logits = predictor.add_new_mask(
@@ -154,22 +207,34 @@ def add_new_obj(
                 mask=mask_tensor,
             )
     except Exception as e:
-        raise e  # 主动抛出错误
+        raise e  # Explicitly raise the error
 
     return _, out_obj_ids, out_mask_logits
 
 
 def compute_mask_iou(mask1, mask2):
     """
-    计算两mask的IoU（交并比）差异
-    返回:
-        iou: 相似度（0~1，1表示完全相同）
-        diff_mask: 差异区域（1表示不同，0表示相同）
+    Calculate the Intersection over Union (IoU) between two masks
+
+    This function measures the similarity between two binary masks by computing
+    the ratio of their intersection area to their union area. The IoU value
+    ranges from 0 to 1, where 1 indicates identical masks and 0 indicates
+    no overlap.
+
+    Args:
+        mask1 (numpy.ndarray): First mask array where non-zero values
+                              represent foreground regions
+        mask2 (numpy.ndarray): Second mask array where non-zero values
+                              represent foreground regions
+
+    Returns:
+        float: IoU value between the two masks in range [0, 1]
+               Returns 1.0 when both masks are all zeros (considered identical)
     """
     intersection = np.logical_and(mask1 > 0, mask2 > 0)
     union = np.logical_or(mask1 > 0, mask2 > 0)
     sum_union = np.sum(union)
-    if sum_union == 0:  # 两个 mask 都是全 0，认为完全相同
+    if sum_union == 0:  # Both masks are all zeros, considered identical
         return 1.0
     iou = np.sum(intersection) / sum_union
     # diff_mask = np.logical_xor(mask1 > 0, mask2 > 0).astype(np.uint8)
@@ -178,12 +243,23 @@ def compute_mask_iou(mask1, mask2):
 
 def compute_mask_iou_batch(masks1, masks2):
     """
-    计算两组 mask 的 IoU 矩阵 (num_masks1 x num_masks2)
-    masks1: shape (num_masks1, H, W)
-    masks2: shape (num_masks2, H, W)
-    return: IoU matrix of shape (num_masks1, num_masks2)
+    Compute the IoU matrix between two sets of masks.
+
+    This function calculates the Intersection over Union (IoU) between each pair of masks
+    from two batches of masks. IoU is a common metric for evaluating the similarity between
+    masks, particularly in computer vision tasks.
+
+    Args:
+        masks1: First set of masks with shape (num_masks1, H, W) where num_masks1 is the
+                number of masks in the first set and H, W are the height and width of each mask
+        masks2: Second set of masks with shape (num_masks2, H, W) where num_masks2 is the
+                number of masks in the second set and H, W are the height and width of each mask
+
+    Returns:
+        numpy.ndarray: IoU matrix of shape (num_masks1, num_masks2) where each element (i, j)
+                      represents the IoU between the i-th mask in masks1 and j-th mask in masks2
     """
-    # 边界条件处理：检查是否为空（适用于 NumPy arrays 和 lists）
+    # Handle edge cases for empty inputs
     if isinstance(masks1, np.ndarray) and masks1.size == 0:
         return np.zeros((0, len(masks2)))
     if isinstance(masks2, np.ndarray) and masks2.size == 0:
@@ -193,62 +269,59 @@ def compute_mask_iou_batch(masks1, masks2):
     if not isinstance(masks2, np.ndarray) and not masks2:
         return np.zeros((len(masks1), 0))
 
-    # Flatten masks to binary vectors
+    # Flatten masks to binary vectors for efficient computation
     masks1 = masks1.astype(bool).reshape(len(masks1), -1)  # (N1, H*W)
     masks2 = masks2.astype(bool).reshape(len(masks2), -1)  # (N2, H*W)
 
-    # Compute intersection and union
+    # Compute intersection using matrix multiplication
     intersection = masks1 @ masks2.T  # (N1, N2)
+
+    # Compute union using inclusion-exclusion principle
     union = (
         np.sum(masks1, axis=1)[:, None] + np.sum(masks2, axis=1)[None, :] - intersection
     )
 
-    # Avoid division by zero
+    # Calculate IoU avoiding division by zero
     iou = intersection / union
     return iou
 
 
 def merge_masks(masks_dict, compare_masks_dict=None, iou_threshold=0.5):
     """
-    合并当前帧的masks，但跳过与对比帧中高IoU的物体
+    Merge masks from current frame, skipping objects with high IoU in the comparison frame
 
-    参数:
-        masks_dict (dict): 当前帧的masks {obj_id: mask}
-        compare_masks_dict (dict): 对比帧的masks {obj_id: mask}（可选）
-        iou_threshold (float): IoU阈值，大于此值则跳过合并
+    Parameters:
+        masks_dict (dict): Masks from current frame {obj_id: mask}
+        compare_masks_dict (dict): Masks from comparison frame {obj_id: mask} (optional)
+        iou_threshold (float): IoU threshold, objects with IoU higher than this value will be skipped
 
-    返回:
-        merged_mask (dict): 保留下来的mask
+    Returns:
+        merged_mask (dict): Retained masks
     """
     merged_mask = {}
 
-    # 如果没有对比帧，直接返回masks_dict
+    # If there is no comparison frame, return masks_dict directly
     if compare_masks_dict is None:
         return masks_dict
 
-    # 遍历当前帧的每个物体
+    # Iterate through each object in the current frame
     for obj_id, mask in masks_dict.items():
+        # Convert mask to binary image with non-zero elements as 1 and zero elements as 0
         mask_binary = (mask > 0).astype(np.uint8)
 
-        # 检查对比帧中是否存在高IoU的物体
+        # Check if there is an object with the same ID in the comparison frame
         compare_mask = compare_masks_dict.get(obj_id)
+        # Also convert the mask in the comparison frame to binary image
         compare_binary = (compare_mask > 0).astype(np.uint8)
 
-        # 计算IoU（忽略全零mask的情况）
+        # Calculate IoU (ignoring cases where masks are all zeros)
         if np.any(compare_binary) or np.any(mask_binary):
+            # Calculate the IoU value between two masks
             iou = compute_mask_iou(compare_binary.flatten(), mask_binary.flatten())
-            # if iou < 1.0:
-            #     print(f"iou: {iou}")
+            # If IoU is less than or equal to threshold, keep the mask
             if iou <= iou_threshold:
-                # 仅合并低IoU的物体
-                # print("合并")
+                # Only merge objects with low IoU
                 merged_mask[obj_id] = mask
-                # 显示每个obj的iou
-                # fig, (ax1, ax2, ax3) = plt.subplots(1, 3, figsize=(18, 6))
-                # show_mask(mask, ax1, obj_id=obj_id)
-                # ax1.set_title(f"IoU {iou} (Masks)")
-                # plt.tight_layout()
-                # plt.show()
 
     return merged_mask
 
@@ -267,7 +340,6 @@ def step_one(
     diff_mask_list = []
 
     for i, annos in enumerate(annos_list):
-        # 生成顺序jpg
         video_dir = gen_frame(
             img_paths,
             sort="asc" if i == 0 else "desc",
@@ -287,11 +359,10 @@ def step_one(
         # track objects
         predictor.reset_state(inference_state)
 
-        print(f"建筑物数量: {len(annos)}")
+        print(f"object num: {len(annos)}")
 
-        # 每次单独追踪一个对象
+        # Tracking one object at a time
         def single_building_predict():
-            # 获取追踪结果
             video_segments = (
                 {}
             )  # video_segments contains the per-frame segmentation results
@@ -303,8 +374,7 @@ def step_one(
                 ann_list = []
                 for frame_idx in range(mid_frame + 1):
                     if prompt_type == "points":
-                        # 使用points
-                        labels = [1]  # ***标记正负样本点***
+                        labels = [1]  # sign the positive and negative samples
                         ann_list.append(
                             {
                                 "ann_frame_idx": frame_idx,
@@ -314,7 +384,6 @@ def step_one(
                             }
                         )
                     elif prompt_type == "box":
-                        # 使用box
                         ann_list.append(
                             {
                                 "ann_frame_idx": frame_idx,
@@ -323,7 +392,6 @@ def step_one(
                             }
                         )
                     else:
-                        # 使用mask
                         ann_list.append(
                             {
                                 "ann_frame_idx": frame_idx,
@@ -332,8 +400,7 @@ def step_one(
                             }
                         )
 
-                # 每栋建筑单独预测
-                # 将ann_list导入predictor
+                # add all obj to predictor
                 try:
                     for index, item in enumerate(ann_list):
                         _, out_obj_ids, out_mask_logits = add_new_obj(
@@ -360,7 +427,7 @@ def step_one(
 
             return video_segments
 
-        # 一次追踪seg_len个对象
+        # Tracking seg_len objects at a time
         def predict_buildings_by_seglen(seg_len=50):
             video_segments = (
                 {}
@@ -368,7 +435,7 @@ def step_one(
 
             for frame_idx in range(mid_frame + 1):
 
-                # 将masks按seg_len进行分段
+                # Segment the masks according to seg_len
                 segment = []
                 for i in range(0, len(annos), seg_len):
                     segment.append(annos[i : i + seg_len])
@@ -385,8 +452,7 @@ def step_one(
                         points = item.get("points")
 
                         if prompt_type == "points":
-                            # 使用points
-                            labels = [1]  # ***标记正负样本点***
+                            labels = [1]  # sign the positive and negative samples
                             ann_list.append(
                                 {
                                     "ann_frame_idx": frame_idx,
@@ -396,7 +462,6 @@ def step_one(
                                 }
                             )
                         elif prompt_type == "box":
-                            # 使用box
                             ann_list.append(
                                 {
                                     "ann_frame_idx": frame_idx,
@@ -405,8 +470,6 @@ def step_one(
                                 }
                             )
                         else:
-                            # 使用mask
-                            # binary_mask = mask_utils.decode(rle)
                             ann_list.append(
                                 {
                                     "ann_frame_idx": frame_idx,
@@ -415,7 +478,7 @@ def step_one(
                                 }
                             )
 
-                    # 将ann_list导入predictor
+                    # add all obj to predictor
                     try:
                         for index, item in enumerate(ann_list):
                             _, out_obj_ids, out_mask_logits = add_new_obj(
@@ -444,12 +507,13 @@ def step_one(
             return video_segments
 
         video_segments = predict_buildings_by_seglen()
-        # mask合并显示
+
+        # merge masks
         segments_len = len(video_segments)
         if segments_len == 0:
             diff_mask = {}
         else:
-            # 首尾帧比较
+            # compare the first and last frames to get the difference
             diff_mask = merge_masks(
                 video_segments[0 if diff_frame_num == 1 else segments_len - 2],
                 compare_masks_dict=video_segments[segments_len - 1],
@@ -458,12 +522,11 @@ def step_one(
 
         diff_mask_list.append(diff_mask)
 
-        # 消融实验用
+        # For ablation experiments
         # diff_mask_list.append(video_segments)
 
-        torch.cuda.empty_cache()  # 清理 PyTorch 的 CUDA 缓存
+        torch.cuda.empty_cache()
 
-    # 显式释放 predictor
     del predictor
     gc.collect()
 
