@@ -1,11 +1,16 @@
 import gc
 import os
+import sys
 import torch
 
 from BiSAM_CD import step_one
-from sam2.build_sam import build_sam2_video_predictor
 from utils.get_annos import get_annos
 from utils.sum_masks_dict import sum_masks_dict
+
+deps_path = os.path.join(os.path.dirname(__file__), "sam2")
+sys.path.insert(0, deps_path)
+from sam2.build_sam import build_sam2_video_predictor
+
 
 # select the device for computation
 if torch.cuda.is_available():
