@@ -26,6 +26,11 @@ To use the SAM 2 predictor and run the example notebooks, `jupyter` and `matplot
 pip install -e ".[notebooks]"
 ```
 
+Then install the dependdencies of BiSAM-CD:
+```bash
+cd .. && pip install -r requirements.txt
+```
+
 ## Getting Started
 
 ### Download Checkpoints
