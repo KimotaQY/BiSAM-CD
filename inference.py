@@ -1,13 +1,11 @@
+import gc
 import os
-from pathlib import Path
-import cv2
 import torch
-import matplotlib.pyplot as plt
 
 from BiSAM_CD import step_one
 from sam2.build_sam import build_sam2_video_predictor
 from utils.get_annos import get_annos
-from eval import sum_masks_dict
+from utils.sum_masks_dict import sum_masks_dict
 
 # select the device for computation
 if torch.cuda.is_available():
@@ -33,7 +31,7 @@ elif device.type == "mps":
     )
 
 
-def main(
+def inference(
     img_paths: list,
     label_paths: list,
     model_type="b+",
@@ -42,6 +40,7 @@ def main(
     iou_threshold=0.5,
     label_origin="whu",
     prompt_type="box",
+    **kwargs,
 ):
     model_obj = {
         "t": {
@@ -64,8 +63,10 @@ def main(
     checkpoint = model_obj[model_type]["checkpoint"]
     config = model_obj[model_type]["config"]
     # load SAM2 video predictor
-    sam2_checkpoint = os.path.join("E:/CD_Checkpoints", checkpoint)
-    model_cfg = os.path.join("E:/CD_projects/BiSAM-CD/sam2/configs/sam2.1", config)
+    ckpt_dir = kwargs.get("ckpt_dir", "")
+    config_dir = kwargs.get("config_dir", "")
+    sam2_checkpoint = os.path.join(ckpt_dir, checkpoint)
+    model_cfg = os.path.join(config_dir, config)
 
     if None in [img_paths, label_paths]:
         print("Please input img_paths and label_paths")
@@ -94,80 +95,9 @@ def main(
     h, w = diff_mask.shape[-2:]
     mask = diff_mask.reshape(h, w, 1)
 
-    # create a figure that can hold three subplots
-    plt.figure(figsize=(15, 5))  # set the figure size
+    if "predictor" in locals():
+        del predictor
+    torch.cuda.empty_cache()
+    gc.collect()
 
-    # drawing img_A
-    img_A = cv2.imread(img_paths[0])
-    plt.subplot(1, 3, 1)
-    plt.imshow(img_A)
-    plt.title("T1")
-    plt.axis("off")
-
-    # drawing img_B
-    img_B = cv2.imread(img_paths[1])
-    plt.subplot(1, 3, 2)
-    plt.imshow(img_B)
-    plt.title("T2")
-    plt.axis("off")
-
-    # drawing mask
-    plt.subplot(1, 3, 3)
-    plt.imshow(mask, cmap="gray")
-    plt.title("mask")
-    plt.axis("off")
-
-    # show the plot
-    plt.tight_layout()
-    plt.show()
-
-
-if __name__ == "__main__":
-    # label from whu
-    img_name = "tile_13312_26624.png"
-    img_dirs = [
-        "example/WHU-CD/test/A",
-        "example/WHU-CD/test/B",
-    ]
-    label_dirs = [
-        "example/WHU-CD/before_label",
-        "example/WHU-CD/after_label",
-    ]
-    img_paths = []
-    for img_dir in img_dirs:
-        img_paths.append(os.path.join(img_dir, img_name))
-    label_paths = []
-    for label_dir in label_dirs:
-        label_paths.append(os.path.join(label_dir, img_name))
-    main(
-        img_paths=img_paths,
-        label_paths=label_paths,
-        label_origin="whu",
-        prompt_type="box",
-        mid_frame=1,
-    )
-
-    # # label from owlv2
-    # img_name = "tile_13312_26624.png"
-    # img_dirs = [
-    #     "example/WHU-CD/test/A",
-    #     "example/WHU-CD/test/B",
-    # ]
-    # label_dirs = [
-    #     "example/WHU-CD/test/A_owlv2_large_[single building]",
-    #     "example/WHU-CD/test/B_owlv2_large_[single building]",
-    # ]
-
-    # img_paths = []
-    # for img_dir in img_dirs:
-    #     img_paths.append(os.path.join(img_dir, img_name))
-    # label_paths = []
-    # for label_dir in label_dirs:
-    #     label_paths.append(os.path.join(label_dir, Path(img_name).stem + ".json"))
-    # main(
-    #     img_paths=img_paths,
-    #     label_paths=label_paths,
-    #     label_origin="whu_owlv2",
-    #     prompt_type="box",
-    #     mid_frame=1,
-    # )
+    return mask
